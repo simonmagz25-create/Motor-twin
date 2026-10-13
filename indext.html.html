@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Motor Digital Twin Pro</title>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+:root{color-scheme:dark light;--bg:#0e141c;--card:#18212d;--tx:#e6edf5;--mut:#8b9bb0;--ok:#22b36a;--warn:#e8a317;--bad:#e0453a;--off:#66758a;--blue:#3b82f6;--grid:#2a3646;--c1:#60a5fa;--c2:#f59e0b;--c3:#c084fc;--c4:#f87171}
+@media (prefers-color-scheme:light){:root{--bg:#eef2f7;--card:#fff;--tx:#14202e;--mut:#5d6b7d;--grid:#dde4ec}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:10px;padding-top:max(10px,env(safe-area-inset-top));max-width:1000px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+h1{font-size:18px;margin:0}h2{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px}
+.card{background:var(--card);border-radius:14px;padding:12px;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.grid .card{margin:0}
+.badge{padding:5px 10px;border-radius:99px;font-size:12px;font-weight:700;color:#fff;background:var(--blue)}.badge.live{background:var(--ok)}.badge.bad{background:var(--bad)}
+.ban{padding:10px;border-radius:12px;font-weight:700;margin-bottom:10px;color:#fff}.ban.ok{background:var(--ok)}.ban.warn{background:var(--warn)}.ban.bad{background:var(--bad)}
+#main.stale .card:not(.keep){opacity:.4}
+.state{font-size:36px;font-weight:800;text-align:center;padding:12px;border-radius:12px;color:#fff;background:var(--off)}
+.state.STAR{background:var(--warn)}.state.DELTA{background:var(--ok)}.state.FAULT{background:var(--bad)}
+.row{display:flex;gap:8px;margin-top:8px}.pill{flex:1;text-align:center;padding:9px 4px;border-radius:10px;color:#fff;font-weight:700;background:var(--off)}.pill.on{background:var(--ok)}.pill.bad{background:var(--bad)}
+.sub{color:var(--mut);font-size:13px;margin-top:8px;min-height:18px}
+.vr{display:flex;align-items:center;gap:8px;margin:7px 0}.vr span{width:16px;font-weight:700}.vr b{width:64px;text-align:right}
+.bar{flex:1;height:14px;background:var(--grid);border-radius:7px;overflow:hidden;position:relative}.bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s}
+.mk{position:absolute;top:0;bottom:0;width:2px}
+.big{font-size:32px;font-weight:800}
+.kv{display:grid;grid-template-columns:1fr auto;gap:5px 10px;font-size:14px}.kv span{color:var(--mut)}
+canvas{width:100%;height:150px;display:block}
+svg text{fill:var(--tx);font-size:12px;text-anchor:middle}svg .lbl{fill:#fff;font-weight:700}
+.eq{fill:var(--off);stroke:var(--grid);stroke-width:2}.eq.on{fill:var(--ok)}.eq.bad{fill:var(--bad)}
+.w{stroke:var(--off);stroke-width:4;fill:none}.w.live{stroke:var(--ok)}.w.bad{stroke:var(--bad)}
+#rot{transform-origin:560px 90px;animation:spin 1.4s linear infinite;animation-play-state:paused}@keyframes spin{to{transform:rotate(360deg)}}
+ul{list-style:none;margin:0;padding:0;max-height:200px;overflow:auto;font:12px ui-monospace,monospace}li{padding:3px 0;border-bottom:1px solid var(--grid);color:var(--mut)}li.bad{color:var(--bad)}li.warn{color:var(--warn)}li.ok{color:var(--ok)}
+button{font:inherit;padding:9px 12px;border-radius:10px;border:0;background:var(--blue);color:#fff;font-weight:600;margin:3px 3px 3px 0}button.s{background:var(--off)}button.r{background:var(--bad)}
+input{font:inherit;width:100%;padding:7px;border-radius:8px;border:1px solid var(--grid);background:var(--bg);color:var(--tx)}label{font-size:12px;color:var(--mut);display:block}
+.set{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}summary{cursor:pointer;font-weight:700;margin-bottom:8px}
+</style></head><body>
+<header><h1>⚙️ Star-Delta Motor Digital Twin</h1><span id="link" class="badge">SIMULATOR (demo)</span></header>
+<div id="ban" class="ban ok">✔ ALL NORMAL</div>
+<div id="main">
+<div class="card"><h2>Twin schematic</h2>
+<svg viewBox="0 0 640 190" width="100%" role="img" aria-label="Star-delta starter schematic">
+<line id="l1" class="w" x1="10" y1="55" x2="150" y2="55"/><line id="l2" class="w" x1="10" y1="95" x2="150" y2="95"/><line id="l3" class="w" x1="10" y1="135" x2="150" y2="135"/>
+<text id="t1" x="80" y="46">L1</text><text id="t2" x="80" y="86">L2</text><text id="t3" x="80" y="126">L3</text>
+<rect id="k1" class="eq" x="150" y="30" width="70" height="130" rx="8"/><text class="lbl" x="185" y="98">K1 main</text>
+<line id="b1" class="w" x1="220" y1="55" x2="290" y2="55"/><line id="b2" class="w" x1="220" y1="95" x2="290" y2="95"/><line id="b3" class="w" x1="220" y1="135" x2="290" y2="135"/>
+<rect id="ol" class="eq" x="290" y="30" width="60" height="130" rx="8"/><text class="lbl" x="320" y="98">OL</text>
+<line id="c1" class="w" x1="350" y1="52" x2="400" y2="52"/><line id="c2" class="w" x1="350" y1="137" x2="400" y2="137"/>
+<rect id="k2" class="eq" x="400" y="25" width="75" height="55" rx="8"/><text class="lbl" x="437" y="57">K2 star</text>
+<rect id="k3" class="eq" x="400" y="110" width="75" height="55" rx="8"/><text class="lbl" x="437" y="142">K3 delta</text>
+<line id="d1" class="w" x1="475" y1="52" x2="520" y2="52"/><line id="d2" class="w" x1="475" y1="137" x2="531" y2="137"/>
+<circle cx="560" cy="90" r="55" fill="none" stroke="var(--grid)" stroke-width="3"/>
+<g id="rot"><line x1="560" y1="90" x2="560" y2="52" stroke="var(--blue)" stroke-width="5" stroke-linecap="round"/></g>
+<circle cx="560" cy="90" r="7" fill="var(--blue)"/><text x="560" y="88" dy="30" id="mm">OFF</text>
+</svg></div>
+
+<div class="grid">
+<div class="card keep"><h2>Starter state</h2><div id="state" class="state">OFF</div>
+<div class="row"><div id="run" class="pill">STOPPED</div><div id="olp" class="pill on">NORMAL</div></div><div id="info" class="sub"></div></div>
+<div class="card"><h2>Supply voltage (V rms)</h2>
+<div class="vr"><span>A</span><div class="bar"><i id="vb0"></i></div><b id="vv0">--</b></div>
+<div class="vr"><span>B</span><div class="bar"><i id="vb1"></i></div><b id="vv1">--</b></div>
+<div class="vr"><span>C</span><div class="bar"><i id="vb2"></i></div><b id="vv2">--</b></div>
+<div id="unb" class="sub"></div></div>
+<div class="card"><h2>Motor temperature</h2><div class="big" id="t">--</div>
+<div class="bar"><i id="tb"></i><span class="mk" id="mw" style="background:var(--warn)"></span><span class="mk" id="mt" style="background:var(--bad)"></span></div>
+<div class="sub" id="tinfo"></div></div></div>
+
+<div class="grid" style="margin-top:10px"><div class="card"><h2>Voltage trend (V) – A blue · B amber · C purple</h2><canvas id="cv"></canvas></div>
+<div class="card"><h2>Temperature trend (°C) with limits</h2><canvas id="ct"></canvas></div></div>
+
+<div class="grid" style="margin-top:10px"><div class="card"><h2>Statistics</h2><div class="kv">
+<span>Starts</span><b id="sS">0</b><span>Run time</span><b id="sR">00:00:00</b><span>Time in star (current start)</span><b id="sT">–</b>
+<span>Last star→delta changeover</span><b id="sC">–</b><span>Max temperature</span><b id="sM">–</b><span>Voltage min / max</span><b id="sV">–</b></div>
+<button class="s" onclick="resetStats()">Reset stats</button><button class="s" onclick="exportCsv()">Export CSV log</button></div>
+<div class="card"><h2>Event log</h2><ul id="log"></ul></div></div>
+</div>
+
+<div class="card keep"><h2>Live link (MQTT) – LabVIEW publishes <code>VA,VB,VC,TEMP,K1,K2,K3,OL</code></h2>
+<div class="set"><label>Broker (WebSocket URL)<input id="brk"></label><label>Topic (make it unique)<input id="top"></label></div>
+<button onclick="live()">Connect live</button><button class="s" onclick="demo()">Back to simulator</button></div>
+
+<details class="card keep"><summary>Settings &amp; simulator scenarios</summary><div class="set" id="set"></div>
+<div style="margin-top:10px"><button onclick="startM()">▶ Start</button><button class="s" onclick="sim.run=false">■ Stop</button>
+<button class="r" onclick="sim.ol=0">Trip overload</button><button class="s" onclick="sim.ol=1">Reset overload</button>
+<button onclick="sim.vb=sim.vb>200?230:170">Phase B sag</button><button onclick="sim.lossC=!sim.lossC">Phase C loss</button>
+<button onclick="sim.heat=!sim.heat">Overheat</button><button class="r" onclick="sim.fault=!sim.fault">K2+K3 fault</button>
+<button onclick="sim.stuck=!sim.stuck">Stuck in star</button></div></details>
+
+<script>
+const $=id=>document.getElementById(id),now=()=>Date.now();
+const S={vlo:207,vhi:253,twarn:70,ttrip:85,unb:2,starMax:15,broker:'wss://broker.hivemq.com:8884/mqtt',topic:'nust-eee3206-MAGZ/motor'};
+try{Object.assign(S,JSON.parse(localStorage.getItem('twinS')||'{}'))}catch(e){}
+const save=()=>{try{localStorage.setItem('twinS',JSON.stringify(S))}catch(e){}};
+const F=[['vlo','V low (V)'],['vhi','V high (V)'],['twarn','Temp warning (°C)'],['ttrip','Temp trip (°C)'],['unb','Unbalance limit (%)'],['starMax','Max star time (s)']];
+$('set').innerHTML=F.map(([k,l])=>`<label>${l}<input type="number" id="s_${k}" value="${S[k]}"></label>`).join('');
+F.forEach(([k])=>$('s_'+k).onchange=e=>{S[k]=+e.target.value;save()});
+$('brk').value=S.broker;$('top').value=S.topic;
+
+let mode='sim',cli=null,last=0,prev=null,startT=0,starts=0,runSec=0,tmax=null,vmin=1e9,vmax=0,chg=null,lastT=0,lastD=null;
+const MAX=240,H={a:[],b:[],c:[],t:[]},rows=[],AL=new Map();
+const hms=s=>[s/3600|0,(s/60|0)%60,s%60|0].map(n=>String(n).padStart(2,'0')).join(':');
+function log(m,sev){const li=document.createElement('li');li.className=sev||'';li.textContent=new Date().toLocaleTimeString()+'  '+m;$('log').prepend(li);while($('log').children.length>100)$('log').lastChild.remove()}
+function alarm(k,on,msg,sev){if(on){if(!AL.has(k))log('ALARM: '+msg,sev);AL.set(k,{msg,sev})}else if(AL.has(k)){log('Cleared: '+AL.get(k).msg,'ok');AL.delete(k)}}
+function banner(){const b=$('ban');$('main').classList.toggle('stale',AL.has('stale'));
+ if(!AL.size){b.className='ban ok';b.textContent='✔ ALL NORMAL';return}
+ const crit=[...AL.values()].some(a=>a.sev==='bad');b.className='ban '+(crit?'bad':'warn');
+ b.textContent=(crit?'⛔ ':'⚠ ')+[...AL.values()].map(a=>a.msg).join(' · ')}
+
+function process(d){
+ const t=now(),dt=lastT?Math.min(2,(t-lastT)/1000):0;lastT=t;lastD=d;
+ const st=d.k2&&d.k3?'FAULT':d.k1&&d.k2?'STAR':d.k1&&d.k3?'DELTA':'OFF',run=!!d.k1&&st!=='FAULT',ovl=!d.ol;
+ const V=[d.va,d.vb,d.vc],ok=V.map(v=>v>=S.vlo&&v<=S.vhi),avg=(V[0]+V[1]+V[2])/3,unb=avg>0?100*Math.max(...V.map(v=>Math.abs(v-avg)))/avg:0;
+ if(prev===null){if(st==='STAR')startT=t}
+ else if(st!==prev){log('State: '+prev+' → '+st,st==='FAULT'?'bad':'');
+  if(prev==='OFF'&&st==='STAR'){startT=t;starts++;chg=null}
+  if(prev==='STAR'&&st==='DELTA'){chg=(t-startT)/1000;log('Star→delta changeover after '+chg.toFixed(1)+' s','ok')}}
+ prev=st;const starDur=st==='STAR'?(t-startT)/1000:null;
+ alarm('ovl',ovl,'Overload tripped','bad');alarm('flt',st==='FAULT','Interlock fault: K2+K3 both closed','bad');
+ alarm('trip',d.temp>S.ttrip,'Temperature above trip limit ('+S.ttrip+' °C)','bad');
+ alarm('warm',d.temp>S.twarn&&d.temp<=S.ttrip,'Temperature above warning ('+S.twarn+' °C)','warn');
+ 'ABC'.split('').forEach((p,i)=>{alarm('pl'+p,V[i]<50,'Phase '+p+' lost','bad');alarm('v'+p,V[i]>=50&&!ok[i],'Phase '+p+' out of range','warn')});
+ alarm('unb',unb>S.unb&&V.every(v=>v>=50),'Voltage unbalance '+unb.toFixed(1)+' %','warn');
+ alarm('star',starDur!==null&&starDur>S.starMax,'Stuck in STAR over '+S.starMax+' s','bad');alarm('stale',false);
+ if(run)runSec+=dt;tmax=tmax===null?d.temp:Math.max(tmax,d.temp);V.forEach(v=>{if(v>=50){vmin=Math.min(vmin,v);vmax=Math.max(vmax,v)}});
+ [['a',d.va],['b',d.vb],['c',d.vc],['t',d.temp]].forEach(([k,v])=>{H[k].push(v);if(H[k].length>MAX)H[k].shift()});
+ rows.push([new Date().toISOString(),d.va.toFixed(1),d.vb.toFixed(1),d.vc.toFixed(1),d.temp.toFixed(1),d.k1,d.k2,d.k3,d.ol,st].join(','));if(rows.length>5000)rows.shift();
+ // render
+ const s=$('state');s.textContent=st==='FAULT'?'INTERLOCK FAULT':st;s.className='state '+st;
+ $('run').textContent=run?'RUNNING':'STOPPED';$('run').className='pill'+(run?' on':'');
+ $('olp').textContent=ovl?'OVERLOAD':'NORMAL';$('olp').className='pill '+(ovl?'bad':'on');
+ $('info').textContent=st==='STAR'?'Starting in STAR for '+starDur.toFixed(1)+' s':st==='DELTA'?'Running in DELTA':ovl?'Tripped on overload – reset required':'';
+ V.forEach((v,i)=>{$('vv'+i).textContent=v.toFixed(0)+' V';const b=$('vb'+i);b.style.width=Math.min(100,v/300*100)+'%';b.style.background=ok[i]?'var(--ok)':'var(--bad)'});
+ $('unb').textContent=`Limits ${S.vlo}–${S.vhi} V · unbalance ${unb.toFixed(1)} % (limit ${S.unb} %)`;
+ $('t').textContent=d.temp.toFixed(1)+' °C';const tb=$('tb');tb.style.width=Math.min(100,d.temp/120*100)+'%';
+ tb.style.background=d.temp>S.ttrip?'var(--bad)':d.temp>S.twarn?'var(--warn)':'var(--ok)';
+ $('mw').style.left=S.twarn/120*100+'%';$('mt').style.left=S.ttrip/120*100+'%';
+ $('tinfo').textContent=`Warning ${S.twarn} °C · trip ${S.ttrip} °C`;
+ $('sS').textContent=starts;$('sR').textContent=hms(runSec);$('sT').textContent=starDur!==null?starDur.toFixed(1)+' s':'–';
+ $('sC').textContent=chg!==null?chg.toFixed(1)+' s':'–';$('sM').textContent=tmax.toFixed(1)+' °C';$('sV').textContent=vmax?vmin.toFixed(0)+' / '+vmax.toFixed(0)+' V':'–';
+ schem(d,st,ok,ovl,run);banner();
+ chart($('cv'),[H.a,H.b,H.c],['--c1','--c2','--c3'],0,300,[{v:S.vlo,c:'--mut'},{v:S.vhi,c:'--mut'}]);
+ chart($('ct'),[H.t],['--c4'],0,120,[{v:S.twarn,c:'--warn'},{v:S.ttrip,c:'--bad'}]);
+}
+function schem(d,st,ok,ovl,run){
+ const T=(id,c)=>$(id).setAttribute('class',c),L=(id,on)=>T(id,'w '+(on?'live':''));
+ [0,1,2].forEach(i=>{T('l'+(i+1),'w '+(ok[i]?'live':'bad'));$('t'+(i+1)).textContent='L'+(i+1)+'  '+[d.va,d.vb,d.vc][i].toFixed(0)+' V';L('b'+(i+1),d.k1)});
+ T('k1','eq '+(d.k1?'on':''));T('ol','eq '+(ovl?'bad':'on'));
+ T('k2','eq '+(d.k2?(st==='FAULT'?'bad':'on'):''));T('k3','eq '+(d.k3?(st==='FAULT'?'bad':'on'):''));
+ L('c1',d.k1&&!ovl);L('c2',d.k1&&!ovl);L('d1',d.k2);L('d2',d.k3);
+ const r=$('rot').style;r.animationDuration=st==='DELTA'?'.5s':'1.4s';r.animationPlayState=run?'running':'paused';
+ $('mm').textContent=st==='STAR'?'Y  STAR':st==='DELTA'?'Δ  DELTA':st==='FAULT'?'FAULT':'OFF';
+}
+function chart(cv,series,cols,min,max,lines){
+ const dpr=devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;cv.width=w*dpr;cv.height=h*dpr;
+ const c=cv.getContext('2d');c.scale(dpr,dpr);const cs=getComputedStyle(document.documentElement),g=n=>cs.getPropertyValue(n);
+ c.font='11px system-ui';c.lineWidth=1;const Y=v=>h-18-(h-26)*(Math.min(max,Math.max(min,v))-min)/(max-min);
+ for(let i=0;i<=4;i++){const y=h-18-(h-26)*i/4;c.strokeStyle=g('--grid');c.beginPath();c.moveTo(34,y);c.lineTo(w,y);c.stroke();c.fillStyle=g('--mut');c.fillText(Math.round(min+(max-min)*i/4),2,y+4)}
+ lines.forEach(l=>{c.strokeStyle=g(l.c);c.setLineDash([5,4]);c.beginPath();c.moveTo(34,Y(l.v));c.lineTo(w,Y(l.v));c.stroke();c.setLineDash([])});
+ series.forEach((s,k)=>{c.strokeStyle=g(cols[k]);c.lineWidth=2;c.beginPath();s.forEach((v,i)=>{const x=34+(w-34)*(i+MAX-s.length)/(MAX-1);i?c.lineTo(x,Y(v)):c.moveTo(x,Y(v))});c.stroke()});
+ c.fillStyle=g('--mut');c.fillText('older',36,h-4);c.fillText('now',w-26,h-4);
+}
+function resetStats(){starts=0;runSec=0;tmax=null;vmin=1e9;vmax=0;chg=null;rows.length=0;for(const k in H)H[k]=[];log('Statistics reset')}
+function exportCsv(){const b=new Blob(['time,VA,VB,VC,temp,K1,K2,K3,OL,state\n'+rows.join('\n')],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='motor_twin_log.csv';a.click()}
+
+// ---- simulator ----
+const sim={run:false,t0:0,temp:28,vb:230,lossC:false,heat:false,ol:1,fault:false,stuck:false};
+function startM(){if(sim.ol&&!sim.run){sim.run=true;sim.t0=now()}}
+const n=a=>(Math.random()-.5)*a;
+setInterval(()=>{if(mode!=='sim')return;if(!sim.ol)sim.run=false;const el=now()-sim.t0;
+ let k1=sim.run?1:0,k2=sim.run&&(sim.stuck||el<5000)?1:0,k3=sim.run&&!sim.stuck&&el>=5300?1:0;if(sim.fault&&sim.run){k2=1;k3=1}
+ const tg=sim.run?(sim.heat?100:55):28;sim.temp+=(tg-sim.temp)*(sim.heat?.05:.02);
+ process({va:231+n(2),vb:sim.vb+n(2),vc:sim.lossC?4+n(2):232+n(2),temp:sim.temp,k1,k2,k3,ol:sim.ol})},500);
+
+// ---- live MQTT (read-only: the dashboard never commands the motor) ----
+function live(){S.broker=$('brk').value.trim();S.topic=$('top').value.trim();save();
+ if(cli)cli.end(true);mode='live';last=0;resetStats();AL.clear();banner();setLink('LIVE – connecting…','');
+ cli=mqtt.connect(S.broker);
+ cli.on('connect',()=>{cli.subscribe(S.topic);setLink('LIVE – waiting for data','live');log('Connected, subscribed to '+S.topic,'ok')});
+ cli.on('message',(t,m)=>{const a=m.toString().trim().split(',').map(Number);if(a.length!==8||a.some(isNaN))return;
+  last=now();process({va:a[0],vb:a[1],vc:a[2],temp:a[3],k1:a[4]>.5?1:0,k2:a[5]>.5?1:0,k3:a[6]>.5?1:0,ol:a[7]>.5?1:0})});
+ cli.on('error',()=>setLink('CONNECTION ERROR','bad'));cli.on('close',()=>{if(mode==='live')setLink('DISCONNECTED','bad')});
+}
+function demo(){if(cli){cli.end(true);cli=null}mode='sim';last=0;AL.clear();setLink('SIMULATOR (demo)','');log('Simulator mode')}
+const setLink=(t,c)=>{$('link').textContent=t;$('link').className='badge '+c};
+setInterval(()=>{if(mode!=='live'||!last)return;const age=(now()-last)/1000;
+ if(age>5){alarm('stale',true,'No data for '+age.toFixed(0)+' s – values are stale','bad');setLink('LIVE – NO DATA '+age.toFixed(0)+' s','bad');banner()}
+ else setLink('LIVE · data age '+age.toFixed(1)+' s','live')},500);
+addEventListener('resize',()=>{if(lastD)process(lastD)});
+if(location.search.includes('live'))live();
+</script></body></html>
